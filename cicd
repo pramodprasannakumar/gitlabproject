@@ -1,0 +1,76 @@
+stages:
+  - build
+  - sonarqube
+  - sonarqubegate
+  - nexusbackup
+  - tomcatdeploy
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  SONARQUBE_URL: "http://13.233.108.121:9000"
+  SONARQUBE_TOKEN: "715023dab3ee62e03c0ea66978796a9b6d90281d"
+  NEXUS_URL: "http://13.126.80.255:8081/"
+  NEXUS_REPO: "http://13.126.80.255:8081/repository/car-snapshot/"
+  NEXUS_USERNAME: "admin"
+  NEXUS_PASSWORD: "admin"
+  TOMCAT_URL: "http://13.201.226.201:8082/"
+  TOMCAT_USERNAME: "tomcat1"
+  TOMCAT_PASSWORD: "admin1"
+
+before_script:
+  - export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto.x86_64
+  - export PATH=$JAVA_HOME/bin:$PATH
+  - echo "Starting GitLab CI Pipeline for Java project..."
+  - export GRADLE_OPTS="-Dorg.gradle.daemon=false"
+  - ./gradlew --version
+  - if [ -z "$CI_SERVER_TLS_CA_FILE" ] || [ ! -f "$CI_SERVER_TLS_CA_FILE" ]; then
+      echo "TLS CA file not found or inaccessible. Unsetting CI_SERVER_TLS_CA_FILE.";
+      unset CI_SERVER_TLS_CA_FILE;
+    else
+      chmod 644 "$CI_SERVER_TLS_CA_FILE";
+    fi
+
+
+build:
+  stage: build
+  tags:
+    - gradle
+  script:
+    - echo "Building the project with Gradle..."
+    - ./gradlew build
+  artifacts:
+    paths:
+      - build/libs/
+    expire_in: 2 week
+
+sonarqube:
+  stage: sonarqube
+  tags:
+    - gradle
+  script:
+    - echo "Running SonarQube analysis..."
+    - ./gradlew sonar
+
+sonarqubegate:
+  stage: sonarqubegate
+  tags:
+    - gradle
+  script:
+    - echo "Checking SonarQube Quality Gate..."
+    - curl --silent --fail -u "$SONARQUBE_TOKEN:" "$SONARQUBE_URL/api/qualitygates/project_status?projectKey=$CI_PROJECT_NAME" | grep '"status":"OK"' || (echo "Quality Gate failed!" && exit 1)
+
+nexusbackup:
+  stage: nexusbackup
+  tags:
+    - gradle
+  script:
+    - echo "Publishing artifacts to Nexus..."
+    - ./gradlew publish
+
+# tomcatdeploy:
+#   stage: tomcatdeploy
+#   tags:
+#     - gradle
+#   script:
+#     - echo "Deploying to Tomcat server..."
+#     - curl -u "$TOMCAT_USERNAME:$TOMCAT_PASSWORD" -T build/libs/*.war "$TOMCAT_URL/manager/text/deploy?path=/yourapp&update=true"
